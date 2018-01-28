@@ -1,0 +1,6 @@
+[package]
+name = "hashable_refs"
+version = "0.1.0"
+authors = ["jakubtyrcha <jakub.tyrcha@gmail.com>"]
+
+[dependencies]
