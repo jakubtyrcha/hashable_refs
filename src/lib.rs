@@ -2,11 +2,11 @@ use std::rc::{Rc, Weak};
 use std::cell::{Ref, RefMut, RefCell};
 use std::hash::{Hash, Hasher};
 
-pub struct SharedRef<T: ?Sized> (pub Rc<RefCell<T>>);
+pub struct HashableRef<T: ?Sized> (pub Rc<RefCell<T>>);
 
-impl<T> SharedRef<T> {
-    pub fn new(obj : T) -> SharedRef<T> {
-        SharedRef(Rc::new(RefCell::new((obj))))
+impl<T> HashableRef<T> {
+    pub fn new(obj : T) -> HashableRef<T> {
+        HashableRef(Rc::new(RefCell::new((obj))))
     }
 
     pub fn borrow(&self) -> Ref<T> {
@@ -17,73 +17,73 @@ impl<T> SharedRef<T> {
         self.0.borrow_mut()
     }
 
-    pub fn downgrade(&self) -> WeakRef<T> {
-        WeakRef(Rc::downgrade(&self.0))
+    pub fn downgrade(&self) -> WeakHashableRef<T> {
+        WeakHashableRef(Rc::downgrade(&self.0))
     }
 }
 
-impl<T> Clone for SharedRef<T> {
-    fn clone(&self) -> SharedRef<T> { 
-        SharedRef(self.0.clone())
+impl<T> Clone for HashableRef<T> {
+    fn clone(&self) -> HashableRef<T> { 
+        HashableRef(self.0.clone())
     }
 }
 
-pub struct WeakRef<T: ?Sized> (pub Weak<RefCell<T>>);
+pub struct WeakHashableRef<T: ?Sized> (pub Weak<RefCell<T>>);
 
-impl<T> WeakRef<T> {
-    pub fn upgrade(&self) -> Option<SharedRef<T>> {
+impl<T> WeakHashableRef<T> {
+    pub fn upgrade(&self) -> Option<HashableRef<T>> {
         if let Some(x) = self.0.upgrade() {
-            return Some(SharedRef(x))
+            return Some(HashableRef(x))
         };
         None
     }
 }
 
-impl<T> Clone for WeakRef<T> {
-    fn clone(&self) -> WeakRef<T> { 
-        WeakRef(self.0.clone())
+impl<T> Clone for WeakHashableRef<T> {
+    fn clone(&self) -> WeakHashableRef<T> { 
+        WeakHashableRef(self.0.clone())
     }
 }
 
-impl<T> Hash for SharedRef<T> {
+impl<T> Hash for HashableRef<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.as_ptr().hash(state);
     }
 }
 
-impl<T> PartialEq for SharedRef<T> {
-    fn eq(&self, other: &SharedRef<T>) -> bool {
+impl<T> PartialEq for HashableRef<T> {
+    fn eq(&self, other: &HashableRef<T>) -> bool {
         self.0.as_ptr() == other.0.as_ptr()
     }
 }
 
-impl<T> Eq for SharedRef<T> {
+impl<T> Eq for HashableRef<T> {
 }
 
-impl<T> Hash for WeakRef<T> {
+impl<T> Hash for WeakHashableRef<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.upgrade().unwrap().as_ptr().hash(state);
     }
 }
 
-impl<T> PartialEq for WeakRef<T> {
-    fn eq(&self, other: &WeakRef<T>) -> bool {
+impl<T> PartialEq for WeakHashableRef<T> {
+    fn eq(&self, other: &WeakHashableRef<T>) -> bool {
         self.0.upgrade().unwrap().as_ptr() == other.0.upgrade().unwrap().as_ptr()
     }
 }
 
-impl<T> Eq for WeakRef<T> {}
+impl<T> Eq for WeakHashableRef<T> {}
 
 #[cfg(test)]
 mod tests {
     use std::rc::{Rc};
     use std::ops::Deref;
     use std::collections::HashMap;
-    use {SharedRef, WeakRef};
+    use {HashableRef, WeakHashableRef};
 
     #[test]
     fn can_clone_refs() {
-        let own1 = SharedRef::new(String::from("A"));
+        let own1 = HashableRef::new(String::from("A"));
         let _own2 = own1.clone();
         let _weak = own1.downgrade().clone();
         assert_eq!(Rc::strong_count(&own1.0), 2);
@@ -92,11 +92,11 @@ mod tests {
 
     #[test]
     fn can_store_owning_references_to_weak_references() {
-        let mut h = HashMap::<SharedRef<String>,WeakRef<String>>::new();
+        let mut h = HashMap::<HashableRef<String>,WeakHashableRef<String>>::new();
 
-        let a = SharedRef::new(String::from("A"));
-        let b = SharedRef::new(String::from("B"));
-        let c = SharedRef::new(String::from("C"));
+        let a = HashableRef::new(String::from("A"));
+        let b = HashableRef::new(String::from("B"));
+        let c = HashableRef::new(String::from("C"));
 
         h.insert(a.clone(), b.downgrade());
         h.insert(a.clone(), c.downgrade());
@@ -134,11 +134,11 @@ mod tests {
 
     #[test]
     fn can_store_weak_references_as_a_lookup() {
-        let mut h = HashMap::<WeakRef<String>,WeakRef<String>>::new();
+        let mut h = HashMap::<WeakHashableRef<String>,WeakHashableRef<String>>::new();
 
-        let a = SharedRef::new(String::from("A"));
-        let b = SharedRef::new(String::from("B"));
-        let c = SharedRef::new(String::from("C"));
+        let a = HashableRef::new(String::from("A"));
+        let b = HashableRef::new(String::from("B"));
+        let c = HashableRef::new(String::from("C"));
 
         // circular refs
         h.insert(a.downgrade(), b.downgrade());
@@ -172,7 +172,7 @@ mod tests {
         }
     }
 
-    struct Node (Vec<SharedRef<Node>>);
+    struct Node (Vec<HashableRef<Node>>);
 
     fn count_nodes(node : &Node) -> usize {
         let mut count = 1;
@@ -182,14 +182,38 @@ mod tests {
         count
     }
 
+    use std::collections::VecDeque;
+
+    fn count_nodes_stack(node : &Node) -> usize {
+        let mut count : usize = 0;
+        let mut stack = VecDeque::new();
+        stack.push_back(node as *const Node);
+        
+        while !stack.is_empty() {
+            count = count + 1;
+            let top : &Node;
+            unsafe {
+                top = &*stack.pop_front().unwrap();
+            }
+
+            for ref child in &top.0 {
+                let borrow = child.borrow();
+                let node : &Node = borrow.deref();
+                stack.push_back(node as *const Node);
+            }
+        }
+
+        count
+    }
+
     #[test]
     fn can_keep_dag_of_references() {
-        let a = SharedRef::new(Node(Vec::new()));
+        let a = HashableRef::new(Node(Vec::new()));
         {
-            let b = SharedRef::new(Node(Vec::new()));
-            let c = SharedRef::new(Node(Vec::new()));
-            let d = SharedRef::new(Node(Vec::new()));
-            let e = SharedRef::new(Node(Vec::new()));
+            let b = HashableRef::new(Node(Vec::new()));
+            let c = HashableRef::new(Node(Vec::new()));
+            let d = HashableRef::new(Node(Vec::new()));
+            let e = HashableRef::new(Node(Vec::new()));
 
             c.borrow_mut().0.push(d);
             c.borrow_mut().0.push(e);
@@ -201,5 +225,6 @@ mod tests {
         }
 
         assert_eq!(count_nodes(&a.borrow()), 5);
+        assert_eq!(count_nodes_stack(&a.borrow()), 5);
     }
 }
